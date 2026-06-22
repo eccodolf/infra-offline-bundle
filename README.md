@@ -100,11 +100,12 @@ C:\BuildTools\VS2019               целевая папка установки
 3. Докачает только отсутствующие или поврежденные файлы.
 4. Использует готовый layout из .\vs2019-buildtools или распакует layout в .\vsbt2019-install\layout, если готового layout нет.
 5. Установит root certificates из .\vs2019-buildtools\certificates в LocalMachine Root.
-6. Создаст .\vsbt2019-install\Install-VSBT2019-Offline.response.json с локальными ChannelManifest.json и Catalog.json.
-7. Запустит vs_buildtools.exe из корня layout с --noWeb, response-файлом, нужными --add компонентами и рабочей директорией layout.
-8. Покажет пассивный UI установщика, чтобы был виден процесс.
-9. Сохранит логи в .\vsbt2019-install\logs.
-10. Проверит, что после установки доступны VsDevCmd.bat, cl.exe, MSBuild.exe и Windows SDK 10.0.19041.0.
+6. Установит встроенный Microsoft Windows Code Signing PCA 2024 в LocalMachine Intermediate Certification Authorities.
+7. Создаст .\vsbt2019-install\Install-VSBT2019-Offline.response.json с локальными ChannelManifest.json и Catalog.json.
+8. Запустит vs_buildtools.exe из корня layout с --noWeb, response-файлом, нужными --add компонентами и рабочей директорией layout.
+9. Покажет пассивный UI установщика, чтобы был виден процесс.
+10. Сохранит логи в .\vsbt2019-install\logs.
+11. Проверит, что после установки доступны VsDevCmd.bat, cl.exe, MSBuild.exe и Windows SDK 10.0.19041.0.
 ```
 
 Если для скачивания с GitHub нужен proxy, скрипт спросит его при первой докачке. Введи URL в формате `http://host:port`. Если proxy не нужен, просто нажми Enter, тогда proxy использоваться не будет.

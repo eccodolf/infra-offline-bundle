@@ -128,6 +128,91 @@ function Get-BuildToolsVerificationFailures {
     return $Failures
 }
 
+function Assert-CertificateNotDisallowed {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Thumbprint,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Name
+    )
+
+    $NormalizedThumbprint = $Thumbprint.Replace(" ", "").ToUpperInvariant()
+    $DisallowedStores = @(
+        "Cert:\LocalMachine\Disallowed",
+        "Cert:\CurrentUser\Disallowed"
+    )
+
+    foreach ($Store in $DisallowedStores) {
+        $Blocked = Get-ChildItem $Store -ErrorAction SilentlyContinue |
+            Where-Object { $_.Thumbprint -eq $NormalizedThumbprint } |
+            Select-Object -First 1
+
+        if ($Blocked) {
+            throw "Certificate is present in Untrusted Certificates store ($Store): $Name [$NormalizedThumbprint]"
+        }
+    }
+}
+
+function Install-CertificateFile {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+
+        [Parameter(Mandatory = $true)]
+        [string]$StoreName,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Name
+    )
+
+    $Certificate = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($Path)
+    Assert-CertificateNotDisallowed -Thumbprint $Certificate.Thumbprint -Name $Name
+
+    $StorePath = "Cert:\LocalMachine\$StoreName"
+    Write-Host "Installing certificate into $($StorePath): $Name [$($Certificate.Thumbprint)]"
+    Import-Certificate -FilePath $Path -CertStoreLocation $StorePath | Out-Null
+
+    Assert-CertificateNotDisallowed -Thumbprint $Certificate.Thumbprint -Name $Name
+}
+
+function Install-EmbeddedIntermediateCertificates {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$WorkDir
+    )
+
+    $EmbeddedCertificates = @(
+        [pscustomobject]@{
+            Name = "Microsoft Windows Code Signing PCA 2024"
+            FileName = "MicrosoftWindowsCodeSigningPCA2024.crt"
+            StoreName = "CA"
+            Thumbprint = "D30F05F637E605239C0070D1EA9860D434AC2A94"
+            Base64 = @"
+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
+"@
+        }
+    )
+
+    $CertificatesDir = Join-Path $WorkDir "certificates"
+    New-Item -ItemType Directory -Force $CertificatesDir | Out-Null
+
+    foreach ($EmbeddedCertificate in $EmbeddedCertificates) {
+        $CertificatePath = Join-Path $CertificatesDir $EmbeddedCertificate.FileName
+        [IO.File]::WriteAllBytes($CertificatePath, [Convert]::FromBase64String($EmbeddedCertificate.Base64.Trim()))
+
+        $Certificate = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($CertificatePath)
+        if ($Certificate.Thumbprint -ne $EmbeddedCertificate.Thumbprint) {
+            throw "Embedded certificate thumbprint mismatch for $($EmbeddedCertificate.Name). Expected $($EmbeddedCertificate.Thumbprint), got $($Certificate.Thumbprint)"
+        }
+
+        Install-CertificateFile `
+            -Path $CertificatePath `
+            -StoreName $EmbeddedCertificate.StoreName `
+            -Name $EmbeddedCertificate.Name
+    }
+}
+
 function Install-LayoutCertificates {
     param(
         [Parameter(Mandatory = $true)]
@@ -153,11 +238,10 @@ function Install-LayoutCertificates {
             continue
         }
 
-        Write-Host "Installing layout certificate into LocalMachine Root: $CertificateName"
-        & certutil.exe -addstore -f "Root" $CertificatePath | Out-Host
-        if ($LASTEXITCODE -ne 0) {
-            throw "certutil failed with exit code $LASTEXITCODE for $CertificatePath"
-        }
+        Install-CertificateFile `
+            -Path $CertificatePath `
+            -StoreName "Root" `
+            -Name $CertificateName
     }
 }
 
@@ -730,6 +814,8 @@ $ExistingLayout = Find-LayoutRoot -Candidates $LayoutCandidates
     }
 
     Install-LayoutCertificates -LayoutDir $LayoutDir
+    Install-EmbeddedIntermediateCertificates -WorkDir $WorkDir
+
     $InstallResponsePath = New-OfflineInstallResponseFile `
         -LayoutDir $LayoutDir `
         -InstallPath $InstallPath `

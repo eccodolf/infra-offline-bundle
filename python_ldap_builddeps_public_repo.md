@@ -65,6 +65,7 @@ cd "C:\offline"
 
 $Repo = "eccodolf/infra-offline-bundle"
 $Tag = "python-ldap-3.4.5-builddeps-2026-06"
+$VenvPath = "C:\PyCharmProjects\rescalc\venv"
 
 New-Item -ItemType Directory -Force ".\python-ldap-builddeps-bootstrap" | Out-Null
 
@@ -75,7 +76,8 @@ Invoke-WebRequest `
 
 powershell -ExecutionPolicy Bypass `
   -File ".\python-ldap-builddeps-bootstrap\Install-PythonLdapBuildDeps.ps1" `
-  -VenvPath "C:\PyCharmProjects\rescalc\venv" `
+  -VenvPath $VenvPath `
+  -InstallPythonLdap `
   -NoIndex
 ```
 
@@ -87,11 +89,16 @@ If GitHub requires a proxy for the first download, add:
 
 If proxy is not required, do not pass `-Proxy`. The installer asks for proxy only when it actually has to download a missing asset.
 
-After the installer has configured the venv, run the normal pip install:
+The installer uses a temporary `PIP_CONFIG_FILE` only while installing `python-ldap==3.4.5`. It does not write `pip.ini` into the venv, so the next requirements install is not restricted to the local wheelhouse.
+
+After that, run the normal requirements install:
 
 ```powershell
-C:\PyCharmProjects\rescalc\venv\Scripts\python.exe -m pip install python-ldap==3.4.5
+cd "C:\PyCharmProjects\rescalc"
+& "$VenvPath\Scripts\python.exe" -m pip install -r .\requirements\base.txt
 ```
+
+If `requirements/base.txt` contains `python-ldap==3.4.5`, pip will see that it is already installed in the venv.
 
 For an interactive shell without `-VenvPath`, activate the local paths first:
 
@@ -106,10 +113,9 @@ The installer writes:
 
 ```text
 C:\offline\python-ldap-builddeps\pip.ini
-C:\PyCharmProjects\rescalc\venv\pip.ini    when -VenvPath is passed
 ```
 
-The config points pip to:
+That config is used by the helper script and by `-InstallPythonLdap` through temporary process environment variables. It points pip to:
 
 ```text
 C:\offline\python-ldap-builddeps\wheelhouse

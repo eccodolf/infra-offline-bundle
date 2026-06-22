@@ -21,6 +21,7 @@ cd "C:\offline"
 
 $Repo = "eccodolf/infra-offline-bundle"
 $Tag = "python-ldap-3.4.5-builddeps-2026-06"
+$VenvPath = "C:\PyCharmProjects\rescalc\venv"
 
 New-Item -ItemType Directory -Force ".\python-ldap-builddeps-bootstrap" | Out-Null
 
@@ -31,19 +32,25 @@ Invoke-WebRequest `
 
 powershell -ExecutionPolicy Bypass `
   -File ".\python-ldap-builddeps-bootstrap\Install-PythonLdapBuildDeps.ps1" `
-  -VenvPath "C:\PyCharmProjects\rescalc\venv" `
+  -VenvPath $VenvPath `
+  -InstallPythonLdap `
   -NoIndex
 ```
 
 Если для GitHub нужен proxy, добавь `-Proxy "http://host:port"` к `Invoke-WebRequest`. Сам установочный скрипт также спросит proxy только если ему нужно докачивать отсутствующие файлы. Если proxy не задан, proxy не используется.
 
-После этого обычная установка:
+Скрипт поставит `python-ldap==3.4.5` в указанный venv через временный `PIP_CONFIG_FILE`. Постоянный `pip.ini` в venv не создается, поэтому следующий `pip install -r requirements/base.txt` не будет ограничен локальным wheelhouse.
+
+После этого обычная установка requirements:
 
 ```powershell
-C:\PyCharmProjects\rescalc\venv\Scripts\python.exe -m pip install python-ldap==3.4.5
+cd "C:\PyCharmProjects\rescalc"
+& "$VenvPath\Scripts\python.exe" -m pip install -r .\requirements\base.txt
 ```
 
-Если `-VenvPath` не передавался, активируй окружение в текущем PowerShell:
+Если `requirements/base.txt` содержит `python-ldap==3.4.5`, pip увидит уже установленную версию и пропустит сборку.
+
+Ручной режим без `-InstallPythonLdap`, только для текущего PowerShell:
 
 ```powershell
 . "C:\offline\python-ldap-builddeps\Use-PythonLdapBuildDeps.ps1" -NoIndex

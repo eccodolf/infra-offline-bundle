@@ -13,6 +13,8 @@ param(
 
     [switch]$NoIndex,
 
+    [switch]$InstallPythonLdap,
+
     [switch]$SkipDownloads
 )
 
@@ -319,6 +321,79 @@ $NoIndexLine
     Write-TextFile -Path $Path -Content $Content.Trim()
 }
 
+function Get-EnvironmentVariableSnapshot {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Name
+    )
+
+    $EnvPath = "Env:$Name"
+    return [pscustomobject]@{
+        Name = $Name
+        WasSet = Test-Path $EnvPath
+        Value = [Environment]::GetEnvironmentVariable($Name, "Process")
+    }
+}
+
+function Restore-EnvironmentVariable {
+    param(
+        [Parameter(Mandatory = $true)]
+        $Snapshot
+    )
+
+    if ($Snapshot.WasSet) {
+        [Environment]::SetEnvironmentVariable($Snapshot.Name, $Snapshot.Value, "Process")
+    }
+    else {
+        [Environment]::SetEnvironmentVariable($Snapshot.Name, $null, "Process")
+    }
+}
+
+function Invoke-PythonLdapInstall {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$VenvPath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$PipConfig,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Wheelhouse,
+
+        [switch]$NoIndex
+    )
+
+    $PythonExe = Join-Path $VenvPath "Scripts\python.exe"
+    if (-not (Test-Path $PythonExe)) {
+        throw "python.exe not found in venv: $PythonExe"
+    }
+
+    $Snapshots = @(
+        $(Get-EnvironmentVariableSnapshot -Name "PIP_CONFIG_FILE"),
+        $(Get-EnvironmentVariableSnapshot -Name "PIP_FIND_LINKS"),
+        $(Get-EnvironmentVariableSnapshot -Name "PIP_NO_INDEX")
+    )
+
+    try {
+        $env:PIP_CONFIG_FILE = $PipConfig
+        $env:PIP_FIND_LINKS = "$Wheelhouse $env:PIP_FIND_LINKS".Trim()
+        if ($NoIndex) {
+            $env:PIP_NO_INDEX = "1"
+        }
+
+        Write-Host "Installing python-ldap==3.4.5 into venv with temporary pip config..."
+        & $PythonExe -m pip install "python-ldap==3.4.5"
+        if ($LASTEXITCODE -ne 0) {
+            throw "pip install python-ldap==3.4.5 failed with exit code $LASTEXITCODE"
+        }
+    }
+    finally {
+        foreach ($Snapshot in $Snapshots) {
+            Restore-EnvironmentVariable -Snapshot $Snapshot
+        }
+    }
+}
+
 function Assert-InstalledPayload {
     param(
         [Parameter(Mandatory = $true)]
@@ -496,14 +571,22 @@ if (-not [string]::IsNullOrWhiteSpace($VenvPath)) {
     if (-not (Test-Path $VenvPath)) {
         throw "VenvPath does not exist: $VenvPath"
     }
-
-    $VenvPipConfig = Join-Path $VenvPath "pip.ini"
-    Write-PipConfigFile -Path $VenvPipConfig -Wheelhouse $Wheelhouse -NoIndex:$NoIndex
-    Write-Host "Configured venv pip.ini: $VenvPipConfig"
 }
 
 Write-Host "[5/5] Verifying installed files..."
 Assert-InstalledPayload -InstallDir $InstallDir
+
+if ($InstallPythonLdap) {
+    if ([string]::IsNullOrWhiteSpace($VenvPath)) {
+        throw "Pass -VenvPath or activate a venv before using -InstallPythonLdap."
+    }
+
+    Invoke-PythonLdapInstall `
+        -VenvPath $VenvPath `
+        -PipConfig $PipConfig `
+        -Wheelhouse $Wheelhouse `
+        -NoIndex:$NoIndex
+}
 
 Write-Host ""
 Write-Host "python-ldap build dependencies installed:"
@@ -518,10 +601,16 @@ else {
 }
 Write-Host "The helper sets PIP_FIND_LINKS and PIP_CONFIG_FILE for this shell."
 Write-Host ""
-Write-Host "Then run:"
-Write-Host "python -m pip install python-ldap==3.4.5"
-if (-not [string]::IsNullOrWhiteSpace($VenvPath)) {
+if ($InstallPythonLdap) {
     Write-Host ""
-    Write-Host "pip in that venv will also read:"
-    Write-Host "$VenvPath\pip.ini"
+    Write-Host "python-ldap==3.4.5 is installed in:"
+    Write-Host $VenvPath
+    Write-Host ""
+    Write-Host "Continue with your requirements install; the venv pip.ini was not modified:"
+    Write-Host "`"$VenvPath\Scripts\python.exe`" -m pip install -r .\requirements\base.txt"
+}
+else {
+    Write-Host ""
+    Write-Host "Then run, only for the python-ldap install shell:"
+    Write-Host "python -m pip install python-ldap==3.4.5"
 }

@@ -71,9 +71,18 @@ Assert-FileContains "Install-PythonLdapBuildDeps.ps1" 'pip\.ini'
 Assert-FileContains "Install-PythonLdapBuildDeps.ps1" 'include\\lber\.h'
 Assert-FileContains "Install-PythonLdapBuildDeps.ps1" 'olber32_a\.lib'
 Assert-FileContains "Install-PythonLdapBuildDeps.ps1" 'NoIndex'
-Assert-FileContains "Install-PythonLdapBuildDeps.ps1" 'Configured venv pip\.ini'
+Assert-FileContains "Install-PythonLdapBuildDeps.ps1" 'InstallPythonLdap'
+Assert-FileContains "Install-PythonLdapBuildDeps.ps1" 'PIP_CONFIG_FILE'
+Assert-FileContains "Install-PythonLdapBuildDeps.ps1" 'Restore-EnvironmentVariable'
 
 Assert-FileContains "README.md" 'Python LDAP'
 Assert-FileContains "README.md" 'Install-PythonLdapBuildDeps\.ps1'
+Assert-FileContains "README.md" '\$VenvPath = "C:\\PyCharmProjects\\rescalc\\venv"'
+Assert-FileContains "README.md" 'InstallPythonLdap'
+
+$InstallerContent = Get-Content -Raw (Join-Path $Root "Install-PythonLdapBuildDeps.ps1")
+if ($InstallerContent -match 'Join-Path \$VenvPath "pip\.ini"') {
+    throw "Installer must not write persistent pip.ini into the venv."
+}
 
 Write-Host "All repository checks passed."

@@ -128,6 +128,111 @@ function Get-BuildToolsVerificationFailures {
     return $Failures
 }
 
+function Install-LayoutCertificates {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$LayoutDir
+    )
+
+    $CertificatesDir = Join-Path $LayoutDir "certificates"
+    if (-not (Test-Path $CertificatesDir)) {
+        Write-Host "No layout certificates directory found: $CertificatesDir"
+        return
+    }
+
+    $CertificateNames = @(
+        "manifestRootCertificate.cer",
+        "manifestCounterSignRootCertificate.cer",
+        "vs_installer_opc.RootCertificate.cer"
+    )
+
+    foreach ($CertificateName in $CertificateNames) {
+        $CertificatePath = Join-Path $CertificatesDir $CertificateName
+        if (-not (Test-Path $CertificatePath)) {
+            Write-Host "Layout certificate not found: $CertificatePath"
+            continue
+        }
+
+        Write-Host "Installing layout certificate into LocalMachine Root: $CertificateName"
+        & certutil.exe -addstore -f "Root" $CertificatePath | Out-Host
+        if ($LASTEXITCODE -ne 0) {
+            throw "certutil failed with exit code $LASTEXITCODE for $CertificatePath"
+        }
+    }
+}
+
+function New-OfflineInstallResponseFile {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$LayoutDir,
+
+        [Parameter(Mandatory = $true)]
+        [string]$InstallPath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$WorkDir
+    )
+
+    $LayoutResponsePath = Join-Path $LayoutDir "Response.json"
+    $LayoutResponse = $null
+    if (Test-Path $LayoutResponsePath) {
+        $LayoutResponse = Get-Content $LayoutResponsePath -Raw | ConvertFrom-Json
+    }
+
+    $Add = @()
+    if ($LayoutResponse -and $LayoutResponse.add) {
+        $Add = @($LayoutResponse.add)
+    }
+
+    if ($Add.Count -eq 0) {
+        $Add = @(
+            "Microsoft.VisualStudio.Workload.VCTools",
+            "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+            "Microsoft.VisualStudio.Component.Windows10SDK.19041"
+        )
+    }
+
+    $AddProductLang = @()
+    if ($LayoutResponse -and $LayoutResponse.addProductLang) {
+        $AddProductLang = @($LayoutResponse.addProductLang)
+    }
+
+    if ($AddProductLang.Count -eq 0) {
+        $AddProductLang = @("en-US")
+    }
+
+    $ChannelId = "VisualStudio.16.Release"
+    if ($LayoutResponse -and -not [string]::IsNullOrWhiteSpace($LayoutResponse.channelId)) {
+        $ChannelId = $LayoutResponse.channelId
+    }
+
+    $ProductId = "Microsoft.VisualStudio.Product.BuildTools"
+    if ($LayoutResponse -and -not [string]::IsNullOrWhiteSpace($LayoutResponse.productId)) {
+        $ProductId = $LayoutResponse.productId
+    }
+
+    $ChannelManifestPath = Join-Path $LayoutDir "ChannelManifest.json"
+    $CatalogPath = Join-Path $LayoutDir "Catalog.json"
+
+    $Response = [ordered]@{
+        installChannelUri = $ChannelManifestPath
+        channelUri = $ChannelManifestPath
+        installCatalogUri = $CatalogPath
+        channelId = $ChannelId
+        productId = $ProductId
+        installPath = $InstallPath
+        passive = $true
+        norestart = $true
+        includeRecommended = $true
+        addProductLang = $AddProductLang
+        add = $Add
+    }
+
+    $ResponsePath = Join-Path $WorkDir "Install-VSBT2019-Offline.response.json"
+    $Response | ConvertTo-Json -Depth 10 | Set-Content -Path $ResponsePath -Encoding UTF8
+    return $ResponsePath
+}
+
 function Find-LayoutRoot {
     param(
         [string[]]$Candidates
@@ -439,7 +544,6 @@ $RunStamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $TranscriptPath = Join-Path $LogsDir "Install-VSBT2019-Offline-$RunStamp.log"
 
 New-Item -ItemType Directory -Force $WorkDir | Out-Null
-New-Item -ItemType Directory -Force $InstallPath | Out-Null
 New-Item -ItemType Directory -Force $LogsDir | Out-Null
 
 Start-Transcript -Path $TranscriptPath -Force | Out-Null
@@ -625,11 +729,34 @@ $ExistingLayout = Find-LayoutRoot -Candidates $LayoutCandidates
         throw "vs_buildtools.exe not found: $Installer"
     }
 
+    Install-LayoutCertificates -LayoutDir $LayoutDir
+    $InstallResponsePath = New-OfflineInstallResponseFile `
+        -LayoutDir $LayoutDir `
+        -InstallPath $InstallPath `
+        -WorkDir $WorkDir
+
+    Write-Host "Offline install response: $InstallResponsePath"
+
+    $ChannelManifestPath = Join-Path $LayoutDir "ChannelManifest.json"
+    $CatalogPath = Join-Path $LayoutDir "Catalog.json"
+
     $InstallArgs = @(
+        "--in",
+        $InstallResponsePath,
         "--noWeb",
         "--wait",
         "--norestart",
         "--passive",
+        "--channelId",
+        "VisualStudio.16.Release",
+        "--productId",
+        "Microsoft.VisualStudio.Product.BuildTools",
+        "--channelUri",
+        $ChannelManifestPath,
+        "--installChannelUri",
+        $ChannelManifestPath,
+        "--installCatalogUri",
+        $CatalogPath,
         "--add",
         "Microsoft.VisualStudio.Workload.VCTools",
         "--add",
@@ -641,6 +768,7 @@ $ExistingLayout = Find-LayoutRoot -Candidates $LayoutCandidates
         $InstallPath
     )
 
+    Write-Host "Installer arguments: $($InstallArgs -join ' ')"
     Write-Host "Script log: $TranscriptPath"
     Write-Host "Visual Studio installer logs will be copied from $env:TEMP to: $LogsDir"
     $InstallerStart = Get-Date
@@ -655,13 +783,9 @@ $ExistingLayout = Find-LayoutRoot -Candidates $LayoutCandidates
 
     Copy-VisualStudioInstallerLogs -Since $InstallerStart -DestinationDir $LogsDir
 
-    if ($ExitCode -eq 0) {
-        Write-Host "VS Build Tools installed successfully."
-    }
-    elseif ($ExitCode -eq 3010) {
-        Write-Host "VS Build Tools installed successfully. Reboot required."
-    }
-    else {
+    Write-Host "VS Build Tools installer exit code: $ExitCode"
+
+    if (($ExitCode -ne 0) -and ($ExitCode -ne 3010)) {
         throw "VS Build Tools installer failed with exit code $ExitCode. See logs: $LogsDir"
     }
 
@@ -672,6 +796,13 @@ $ExistingLayout = Find-LayoutRoot -Candidates $LayoutCandidates
     }
 
     Write-Host "Verified installed Build Tools components."
+    if ($ExitCode -eq 3010) {
+        Write-Host "VS Build Tools installed successfully. Reboot required."
+    }
+    else {
+        Write-Host "VS Build Tools installed successfully."
+    }
+
     Write-Host "Script log: $TranscriptPath"
 }
 finally {

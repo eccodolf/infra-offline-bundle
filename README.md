@@ -99,10 +99,12 @@ C:\BuildTools\VS2019               целевая папка установки
 2. Скопирует найденные SHA256-valid файлы в .\vsbt2019-install\assets.
 3. Докачает только отсутствующие или поврежденные файлы.
 4. Использует готовый layout из .\vs2019-buildtools или распакует layout в .\vsbt2019-install\layout, если готового layout нет.
-5. Запустит vs_buildtools.exe из корня layout с --noWeb, нужными --add компонентами и рабочей директорией layout.
-6. Покажет пассивный UI установщика, чтобы был виден процесс.
-7. Сохранит логи в .\vsbt2019-install\logs.
-8. Проверит, что после установки доступны VsDevCmd.bat, cl.exe, MSBuild.exe и Windows SDK 10.0.19041.0.
+5. Установит root certificates из .\vs2019-buildtools\certificates в LocalMachine Root.
+6. Создаст .\vsbt2019-install\Install-VSBT2019-Offline.response.json с локальными ChannelManifest.json и Catalog.json.
+7. Запустит vs_buildtools.exe из корня layout с --noWeb, response-файлом, нужными --add компонентами и рабочей директорией layout.
+8. Покажет пассивный UI установщика, чтобы был виден процесс.
+9. Сохранит логи в .\vsbt2019-install\logs.
+10. Проверит, что после установки доступны VsDevCmd.bat, cl.exe, MSBuild.exe и Windows SDK 10.0.19041.0.
 ```
 
 Если для скачивания с GitHub нужен proxy, скрипт спросит его при первой докачке. Введи URL в формате `http://host:port`. Если proxy не нужен, просто нажми Enter, тогда proxy использоваться не будет.
@@ -115,6 +117,8 @@ C:\BuildTools\VS2019               целевая папка установки
 .\vsbt2019-install\logs\Install-VSBT2019-Offline-*.log
 .\vsbt2019-install\logs\dd_*.log
 ```
+
+В логе скрипта также сохраняются аргументы запуска Visual Studio Installer и путь к сгенерированному response-файлу.
 
 Устанавливаются:
 

@@ -24,18 +24,19 @@ https://release-assets.githubusercontent.com
 Открой PowerShell и выполни:
 
 ```powershell
-New-Item -ItemType Directory -Force "C:\offline\vsbt2019-bootstrap" | Out-Null
-cd "C:\offline\vsbt2019-bootstrap"
+cd "C:\offline"
 
 $Repo = "eccodolf/infra-offline-bundle"
 $Tag = "vsbt2019-v142-winsdk19041-2026-06"
 
+New-Item -ItemType Directory -Force ".\vsbt2019-bootstrap" | Out-Null
+
 Invoke-WebRequest `
   -UseBasicParsing `
   -Uri "https://github.com/$Repo/releases/download/$Tag/Install-VSBT2019-Offline.ps1" `
-  -OutFile ".\Install-VSBT2019-Offline.ps1"
+  -OutFile ".\vsbt2019-bootstrap\Install-VSBT2019-Offline.ps1"
 
-Test-Path ".\Install-VSBT2019-Offline.ps1"
+Test-Path ".\vsbt2019-bootstrap\Install-VSBT2019-Offline.ps1"
 ```
 
 Последняя команда должна вернуть:
@@ -44,23 +45,75 @@ Test-Path ".\Install-VSBT2019-Offline.ps1"
 True
 ```
 
+Если для скачивания самого скрипта нужен proxy, добавь `-Proxy "http://host:port"` к `Invoke-WebRequest`. Если proxy не нужен, параметр `-Proxy` не указывай.
+
+## Скачать и сразу запустить
+
+Открой PowerShell от администратора:
+
+```powershell
+cd "C:\offline"
+
+$Repo = "eccodolf/infra-offline-bundle"
+$Tag = "vsbt2019-v142-winsdk19041-2026-06"
+
+New-Item -ItemType Directory -Force ".\vsbt2019-bootstrap" | Out-Null
+
+Invoke-WebRequest `
+  -UseBasicParsing `
+  -Uri "https://github.com/$Repo/releases/download/$Tag/Install-VSBT2019-Offline.ps1" `
+  -OutFile ".\vsbt2019-bootstrap\Install-VSBT2019-Offline.ps1"
+
+powershell -ExecutionPolicy Bypass `
+  -File ".\vsbt2019-bootstrap\Install-VSBT2019-Offline.ps1"
+```
+
+Если для GitHub нужен proxy, добавь `-Proxy "http://host:port"` в `Invoke-WebRequest`. Сам установочный скрипт также спросит proxy только если ему нужно докачивать отсутствующие файлы. Если proxy не задан, proxy не используется.
+
 ## Запустить установку
 
 Запусти PowerShell от администратора:
 
 ```powershell
-$Repo = "eccodolf/infra-offline-bundle"
-$Tag = "vsbt2019-v142-winsdk19041-2026-06"
+cd "C:\offline"
 
 powershell -ExecutionPolicy Bypass `
-  -File ".\Install-VSBT2019-Offline.ps1" `
-  -Repo $Repo `
-  -Tag $Tag `
-  -WorkDir "C:\offline\vsbt2019-install" `
-  -InstallPath "C:\BuildTools\VS2019"
+  -File ".\vsbt2019-bootstrap\Install-VSBT2019-Offline.ps1"
 ```
 
-Скрипт скачает `manifest.json`, все release assets и части архива, проверит SHA256, распакует offline layout и запустит `vs_buildtools.exe` с `--noweb`.
+Скрипт работает от текущей директории. Для стандартной раскладки:
+
+```text
+C:\offline\vsbt2019-bootstrap      уже скачанные manifest/assets/части архива
+C:\offline\vs2019-buildtools       уже распакованный Visual Studio Build Tools layout
+C:\offline\vsbt2019-install        рабочая папка, которую создаст скрипт
+C:\BuildTools\VS2019               целевая папка установки
+```
+
+Если `C:\offline\vs2019-buildtools` уже содержит полный layout, скрипт не будет распаковывать архив заново.
+
+Порядок работы:
+
+```text
+1. Проверит уже скачанные файлы в .\vsbt2019-bootstrap, рядом со скриптом, в .\assets и в .\vsbt2019-install\assets.
+2. Скопирует найденные SHA256-valid файлы в .\vsbt2019-install\assets.
+3. Докачает только отсутствующие или поврежденные файлы.
+4. Использует готовый layout из .\vs2019-buildtools или распакует layout в .\vsbt2019-install\layout, если готового layout нет.
+5. Запустит vs_buildtools.exe из корня layout с --noWeb и рабочей директорией layout.
+6. Покажет пассивный UI установщика, чтобы был виден процесс.
+7. Сохранит логи в .\vsbt2019-install\logs.
+```
+
+Если для скачивания с GitHub нужен proxy, скрипт спросит его при первой докачке. Введи URL в формате `http://host:port`. Если proxy не нужен, просто нажми Enter, тогда proxy использоваться не будет.
+
+Если все assets уже скачаны и валидны, скрипт не будет обращаться к GitHub и не спросит proxy.
+
+Логи:
+
+```text
+.\vsbt2019-install\logs\Install-VSBT2019-Offline-*.log
+.\vsbt2019-install\logs\dd_*.log
+```
 
 Устанавливаются:
 

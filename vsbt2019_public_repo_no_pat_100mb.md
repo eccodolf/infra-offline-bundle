@@ -122,279 +122,36 @@ True
 
 ---
 
-## A2. Создать скрипт упаковки
+## A2. Создать скрипты упаковки и установки
 
-Выполни:
+В repo должны лежать два скрипта:
 
-```powershell
-$ScriptPath = "C:\offline\Build-VSBT2019-Payload.ps1"
-
-@'
-param(
-    [string]$LayoutPath = "C:\offline\vs2019-buildtools",
-    [string]$BundlePath = "C:\offline\vs2019-buildtools-release",
-    [string]$BundleName = "vsbt2019-v142-winsdk19041",
-    [string]$SevenZipExe = "C:\Program Files\7-Zip\7z.exe"
-)
-
-$ErrorActionPreference = "Stop"
-
-if (-not (Test-Path $LayoutPath)) {
-    throw "Layout path not found: $LayoutPath"
-}
-
-if (-not (Test-Path (Join-Path $LayoutPath "vs_buildtools.exe"))) {
-    throw "vs_buildtools.exe not found in layout: $LayoutPath"
-}
-
-if (-not (Test-Path $SevenZipExe)) {
-    throw "7-Zip not found: $SevenZipExe"
-}
-
-$SevenZipDir = Split-Path -Parent $SevenZipExe
-$SevenZipDll = Join-Path $SevenZipDir "7z.dll"
-
-if (-not (Test-Path $SevenZipDll)) {
-    throw "7z.dll not found near 7z.exe: $SevenZipDll"
-}
-
-if (Test-Path $BundlePath) {
-    Remove-Item -Recurse -Force $BundlePath
-}
-
-New-Item -ItemType Directory -Force $BundlePath | Out-Null
-
-Write-Host "[1/4] Copying portable 7-Zip files..."
-Copy-Item $SevenZipExe (Join-Path $BundlePath "7z.exe") -Force
-Copy-Item $SevenZipDll (Join-Path $BundlePath "7z.dll") -Force
-
-Write-Host "[2/4] Creating split archive with 100 MB chunks..."
-$ArchivePrefix = Join-Path $BundlePath "$BundleName.7z"
-
-& $SevenZipExe a `
-    -t7z `
-    -mx=5 `
-    -mmt=on `
-    -v100m `
-    $ArchivePrefix `
-    "$LayoutPath\*"
-
-if ($LASTEXITCODE -ne 0) {
-    throw "7-Zip archive creation failed with exit code $LASTEXITCODE"
-}
-
-Write-Host "[3/4] Creating installer script for closed contour..."
-
-$InstallerScript = @'
-param(
-    [string]$Repo = "eccodolf/infra-offline-bundle",
-
-    [string]$Tag = "vsbt2019-v142-winsdk19041-2026-06",
-
-    [string]$WorkDir = "C:\offline\vsbt2019-install",
-
-    [string]$InstallPath = "C:\BuildTools\VS2019"
-)
-
-$ErrorActionPreference = "Stop"
-
-function Get-GitHubReleaseAssetUrl {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$Repo,
-
-        [Parameter(Mandatory = $true)]
-        [string]$Tag,
-
-        [Parameter(Mandatory = $true)]
-        [string]$AssetName
-    )
-
-    $EncodedAssetName = [System.Uri]::EscapeDataString($AssetName)
-    return "https://github.com/$Repo/releases/download/$Tag/$EncodedAssetName"
-}
-
-function Download-File {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$Url,
-
-        [Parameter(Mandatory = $true)]
-        [string]$OutFile
-    )
-
-    Write-Host "Downloading: $Url"
-    Invoke-WebRequest `
-        -UseBasicParsing `
-        -Uri $Url `
-        -OutFile $OutFile
-}
-
-$AssetsDir = Join-Path $WorkDir "assets"
-$LayoutDir = Join-Path $WorkDir "layout"
-
-New-Item -ItemType Directory -Force $AssetsDir | Out-Null
-New-Item -ItemType Directory -Force $LayoutDir | Out-Null
-
-Write-Host "[1/6] Downloading manifest.json from public GitHub Release..."
-
-$ManifestPath = Join-Path $AssetsDir "manifest.json"
-$ManifestUrl = Get-GitHubReleaseAssetUrl -Repo $Repo -Tag $Tag -AssetName "manifest.json"
-
-Download-File -Url $ManifestUrl -OutFile $ManifestPath
-
-Write-Host "[2/6] Reading manifest..."
-
-$Manifest = Get-Content $ManifestPath -Raw | ConvertFrom-Json
-
-if (-not $Manifest.files -or $Manifest.files.Count -eq 0) {
-    throw "Manifest has no files."
-}
-
-Write-Host "[3/6] Downloading release assets..."
-
-foreach ($File in $Manifest.files) {
-    $OutFile = Join-Path $AssetsDir $File.name
-    $NeedDownload = $true
-
-    if (Test-Path $OutFile) {
-        $Actual = (Get-FileHash $OutFile -Algorithm SHA256).Hash.ToUpperInvariant()
-        $Expected = $File.sha256.ToUpperInvariant()
-
-        if ($Actual -eq $Expected) {
-            Write-Host "Already exists and SHA256 OK: $($File.name)"
-            $NeedDownload = $false
-        }
-        else {
-            Write-Host "Existing file has wrong SHA256, re-downloading: $($File.name)"
-            Remove-Item -Force $OutFile
-        }
-    }
-
-    if ($NeedDownload) {
-        $Url = Get-GitHubReleaseAssetUrl -Repo $Repo -Tag $Tag -AssetName $File.name
-        Download-File -Url $Url -OutFile $OutFile
-    }
-}
-
-Write-Host "[4/6] Verifying SHA256..."
-
-foreach ($File in $Manifest.files) {
-    $Path = Join-Path $AssetsDir $File.name
-
-    if (-not (Test-Path $Path)) {
-        throw "Missing file: $($File.name)"
-    }
-
-    $Actual = (Get-FileHash $Path -Algorithm SHA256).Hash.ToUpperInvariant()
-    $Expected = $File.sha256.ToUpperInvariant()
-
-    if ($Actual -ne $Expected) {
-        throw "SHA256 mismatch for $($File.name). Expected $Expected, got $Actual"
-    }
-
-    Write-Host "OK: $($File.name)"
-}
-
-Write-Host "[5/6] Extracting offline layout..."
-
-$SevenZip = Join-Path $AssetsDir "7z.exe"
-
-if (-not (Test-Path $SevenZip)) {
-    throw "7z.exe not found: $SevenZip"
-}
-
-$FirstPart = Get-ChildItem $AssetsDir -Filter "*.7z.001" | Select-Object -First 1
-
-if (-not $FirstPart) {
-    throw "Archive first part *.7z.001 not found."
-}
-
-& $SevenZip x $FirstPart.FullName "-o$LayoutDir" -y
-
-if ($LASTEXITCODE -ne 0) {
-    throw "7-Zip extraction failed with exit code $LASTEXITCODE"
-}
-
-$Installer = Join-Path $LayoutDir "vs_buildtools.exe"
-
-if (-not (Test-Path $Installer)) {
-    throw "vs_buildtools.exe not found after extraction: $Installer"
-}
-
-Write-Host "[6/6] Installing Visual Studio Build Tools 2019 offline..."
-
-& $Installer `
-    --noweb `
-    --wait `
-    --norestart `
-    --passive `
-    --installPath $InstallPath `
-    --add Microsoft.VisualStudio.Workload.VCTools `
-    --add Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
-    --add Microsoft.VisualStudio.Component.Windows10SDK.19041 `
-    --includeRecommended
-
-$ExitCode = $LASTEXITCODE
-
-if ($ExitCode -eq 0) {
-    Write-Host "VS Build Tools installed successfully."
-}
-elseif ($ExitCode -eq 3010) {
-    Write-Host "VS Build Tools installed successfully. Reboot required."
-}
-else {
-    throw "VS Build Tools installer failed with exit code $ExitCode"
-}
-'@
-
-$InstallerScriptPath = Join-Path $BundlePath "Install-VSBT2019-Offline.ps1"
-$InstallerScript | Set-Content $InstallerScriptPath -Encoding UTF8
-
-Write-Host "[4/4] Creating manifest..."
-
-$Files = Get-ChildItem $BundlePath -File | ForEach-Object {
-    [PSCustomObject]@{
-        name = $_.Name
-        size = $_.Length
-        sha256 = (Get-FileHash $_.FullName -Algorithm SHA256).Hash
-    }
-}
-
-$Manifest = [PSCustomObject]@{
-    name = $BundleName
-    chunk_size = "100 MB"
-    created_at = (Get-Date).ToString("s")
-    source_layout = $LayoutPath
-    repo = "eccodolf/infra-offline-bundle"
-    public_download = $true
-    install_components = @(
-        "Microsoft.VisualStudio.Workload.VCTools",
-        "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
-        "Microsoft.VisualStudio.Component.Windows10SDK.19041"
-    )
-    install_command = "vs_buildtools.exe --noweb --wait --norestart --passive --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.VC.Tools.x86.x64 --add Microsoft.VisualStudio.Component.Windows10SDK.19041 --includeRecommended"
-    files = $Files
-}
-
-$ManifestPath = Join-Path $BundlePath "manifest.json"
-$Manifest | ConvertTo-Json -Depth 10 | Set-Content $ManifestPath -Encoding UTF8
-
-Write-Host ""
-Write-Host "Payload is ready:"
-Write-Host $BundlePath
-Write-Host ""
-Write-Host "Files:"
-Get-ChildItem $BundlePath -File | Select-Object FullName, Length
-
-Write-Host ""
-Write-Host "Archive parts count:"
-(Get-ChildItem $BundlePath -File -Filter "*.7z.*").Count
-'@ | Set-Content $ScriptPath -Encoding UTF8
+```text
+Build-VSBT2019-Payload.ps1
+Install-VSBT2019-Offline.ps1
 ```
 
----
+`Build-VSBT2019-Payload.ps1` собирает release payload и кладет в bundle актуальный `Install-VSBT2019-Offline.ps1` из той же директории.
 
+`Install-VSBT2019-Offline.ps1` используется в закрытом контуре. Он:
+
+```text
+1. Работает от текущей директории запуска.
+2. Создает .\vsbt2019-install\assets и .\vsbt2019-install\layout.
+3. Сначала проверяет уже скачанные файлы в .\vsbt2019-bootstrap, рядом со скриптом, в .\assets и в .\vsbt2019-install\assets.
+4. Скопирует SHA256-valid файлы в .\vsbt2019-install\assets.
+5. Докачивает только отсутствующие или поврежденные файлы.
+6. Если нужен proxy, просит URL в формате http://host:port только при фактической докачке.
+7. Если proxy не задан, не использует proxy.
+8. Использует готовый layout из .\vs2019-buildtools или распаковывает layout в .\vsbt2019-install\layout.
+9. Запускает vs_buildtools.exe из корня layout с --noWeb.
+10. Показывает пассивный UI установщика, чтобы был виден процесс.
+11. Сохраняет логи в .\vsbt2019-install\logs.
+```
+
+Скопируй оба скрипта из repo в `C:\offline` рядом друг с другом, если их там еще нет.
+
+---
 ## A3. Запустить упаковку
 
 ```powershell
@@ -517,11 +274,11 @@ gh release view $Tag --repo $Repo --json assets --jq ".assets | length"
 
 ## B1. Скачать установочный скрипт без PAT
 
-Создай временную папку:
+Открой PowerShell:
 
 ```powershell
 New-Item -ItemType Directory -Force "C:\offline\vsbt2019-bootstrap" | Out-Null
-cd "C:\offline\vsbt2019-bootstrap"
+cd "C:\offline"
 ```
 
 Скачай `Install-VSBT2019-Offline.ps1` напрямую из публичного GitHub Release:
@@ -535,40 +292,96 @@ $ScriptUrl = "https://github.com/$Repo/releases/download/$Tag/Install-VSBT2019-O
 Invoke-WebRequest `
   -UseBasicParsing `
   -Uri $ScriptUrl `
-  -OutFile ".\Install-VSBT2019-Offline.ps1"
+  -OutFile ".\vsbt2019-bootstrap\Install-VSBT2019-Offline.ps1"
 ```
 
 Проверить, что файл скачался:
 
 ```powershell
-Test-Path ".\Install-VSBT2019-Offline.ps1"
+Test-Path ".\vsbt2019-bootstrap\Install-VSBT2019-Offline.ps1"
 ```
+
+Если для скачивания самого скрипта нужен proxy, добавь к `Invoke-WebRequest` параметр:
+
+```powershell
+-Proxy "http://host:port"
+```
+
+Если proxy не нужен, не указывай `-Proxy`.
+
+## B1a. Скачать и сразу запустить из консоли
+
+Открой PowerShell от администратора:
+
+```powershell
+cd "C:\offline"
+
+$Repo = "eccodolf/infra-offline-bundle"
+$Tag = "vsbt2019-v142-winsdk19041-2026-06"
+
+New-Item -ItemType Directory -Force ".\vsbt2019-bootstrap" | Out-Null
+
+Invoke-WebRequest `
+  -UseBasicParsing `
+  -Uri "https://github.com/$Repo/releases/download/$Tag/Install-VSBT2019-Offline.ps1" `
+  -OutFile ".\vsbt2019-bootstrap\Install-VSBT2019-Offline.ps1"
+
+powershell -ExecutionPolicy Bypass `
+  -File ".\vsbt2019-bootstrap\Install-VSBT2019-Offline.ps1"
+```
+
+Если для GitHub нужен proxy, добавь `-Proxy "http://host:port"` в `Invoke-WebRequest`. Сам установочный скрипт также спросит proxy только если ему нужно докачивать отсутствующие файлы. Если proxy не задан, proxy не используется.
 
 ---
 
 ## B2. Запустить установку из закрытого контура без PAT
 
 ```powershell
-$Repo = "eccodolf/infra-offline-bundle"
-$Tag = "vsbt2019-v142-winsdk19041-2026-06"
-
 powershell -ExecutionPolicy Bypass `
-  -File ".\Install-VSBT2019-Offline.ps1" `
-  -Repo $Repo `
-  -Tag $Tag `
-  -WorkDir "C:\offline\vsbt2019-install" `
-  -InstallPath "C:\BuildTools\VS2019"
+  -File ".\vsbt2019-bootstrap\Install-VSBT2019-Offline.ps1"
+```
+
+Стандартная локальная раскладка:
+
+```text
+C:\offline\vsbt2019-bootstrap      уже скачанные manifest/assets/части архива
+C:\offline\vs2019-buildtools       уже распакованный Visual Studio Build Tools layout
+C:\offline\vsbt2019-install        рабочая папка, которую создаст скрипт
+C:\BuildTools\VS2019               целевая папка установки
 ```
 
 Скрипт выполнит:
 
 ```text
-1. Скачает manifest.json из публичного GitHub Release.
-2. По manifest.json скачает все assets, включая чанки по 100 MB.
-3. Проверит SHA256 каждого файла.
-4. Распакует split-архив через вложенный 7z.exe.
-5. Запустит vs_buildtools.exe с --noweb.
-6. Установит C++ Build Tools, MSVC v142 x86/x64 и Windows 10 SDK 19041.
+1. Создаст .\vsbt2019-install\assets, .\vsbt2019-install\layout и C:\BuildTools\VS2019.
+2. Сначала проверит уже скачанные файлы в .\vsbt2019-bootstrap, рядом со скриптом, в .\assets и в .\vsbt2019-install\assets.
+3. Скопирует SHA256-valid файлы в .\vsbt2019-install\assets.
+4. Докачает из GitHub Release только отсутствующие или поврежденные файлы.
+5. Проверит SHA256 каждого файла.
+6. Использует готовый layout из .\vs2019-buildtools или распакует split-архив через вложенный 7z.exe, если готового layout нет.
+7. Запустит vs_buildtools.exe из корня layout с --noWeb и рабочей директорией layout.
+8. Покажет пассивный UI установщика, чтобы был виден процесс.
+9. Сохранит логи в .\vsbt2019-install\logs.
+10. Установит C++ Build Tools, MSVC v142 x86/x64 и Windows 10 SDK 19041.
+```
+
+Если для докачки с GitHub нужен proxy, передай его параметром:
+
+```powershell
+powershell -ExecutionPolicy Bypass `
+  -File ".\Install-VSBT2019-Offline.ps1" `
+  -Proxy "http://host:port"
+```
+
+Если `-Proxy` не задан и скрипту реально нужно что-то докачать, он спросит proxy URL интерактивно. Если proxy не нужен, нажми Enter: тогда proxy использоваться не будет.
+
+Если все assets уже скачаны и SHA256 совпадает, скрипт не обращается к GitHub и proxy не спрашивает.
+
+Логи:
+
+```text
+.\vsbt2019-install\logs\Install-VSBT2019-Offline-*.log
+.\vsbt2019-install\logs\dd_*.log
 ```
 
 ---
@@ -622,7 +435,7 @@ powershell -File .\scripts\local-dev.ps1
 ## D1. Проверить, что layout распаковался
 
 ```powershell
-Test-Path "C:\offline\vsbt2019-install\layout\vs_buildtools.exe"
+Test-Path ".\vsbt2019-install\layout\vs_buildtools.exe"
 ```
 
 Должно быть:
@@ -636,10 +449,10 @@ True
 В команде установки должен быть ключ:
 
 ```powershell
---noweb
+--noWeb
 ```
 
-Он уже есть в скрипте.
+Он уже есть в скрипте. Скрипт запускает `vs_buildtools.exe` с рабочей директорией, равной корню layout, чтобы installer видел локальные `Response.json`, `Catalog.json` и `ChannelManifest.json`.
 
 ## D3. Если ошибка “package not found”
 
@@ -690,7 +503,7 @@ Invoke-WebRequest `
 Проверь, что asset имена в release совпадают с именами из manifest:
 
 ```powershell
-Get-Content "C:\offline\vsbt2019-install\assets\manifest.json" -Raw
+Get-Content ".\vsbt2019-install\assets\manifest.json" -Raw
 ```
 
 В release должны быть assets:
@@ -737,21 +550,19 @@ gh release upload $Tag `
 В закрытом контуре:
 
 ```powershell
-New-Item -ItemType Directory -Force "C:\offline\vsbt2019-bootstrap" | Out-Null
-cd "C:\offline\vsbt2019-bootstrap"
+cd "C:\offline"
 
 $Repo = "eccodolf/infra-offline-bundle"
 $Tag = "vsbt2019-v142-winsdk19041-2026-06"
 
+New-Item -ItemType Directory -Force ".\vsbt2019-bootstrap" | Out-Null
+
 Invoke-WebRequest `
   -UseBasicParsing `
   -Uri "https://github.com/$Repo/releases/download/$Tag/Install-VSBT2019-Offline.ps1" `
-  -OutFile ".\Install-VSBT2019-Offline.ps1"
+  -OutFile ".\vsbt2019-bootstrap\Install-VSBT2019-Offline.ps1"
 
 powershell -ExecutionPolicy Bypass `
-  -File ".\Install-VSBT2019-Offline.ps1" `
-  -Repo $Repo `
-  -Tag $Tag `
-  -WorkDir "C:\offline\vsbt2019-install" `
-  -InstallPath "C:\BuildTools\VS2019"
+  -File ".\vsbt2019-bootstrap\Install-VSBT2019-Offline.ps1"
 ```
+

@@ -97,6 +97,79 @@ function Find-ExistingFile {
     return $null
 }
 
+function Read-ValidatedManifest {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ExpectedRepo,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ExpectedTag
+    )
+
+    try {
+        $Manifest = Get-Content $Path -Raw | ConvertFrom-Json
+    }
+    catch {
+        Write-Host "Ignoring unreadable manifest: $Path"
+        return $null
+    }
+
+    if (-not $Manifest.files -or $Manifest.files.Count -eq 0) {
+        Write-Host "Ignoring manifest with no files: $Path"
+        return $null
+    }
+
+    if ($Manifest.repo -ne $ExpectedRepo) {
+        Write-Host "Ignoring manifest for repo '$($Manifest.repo)': $Path"
+        return $null
+    }
+
+    $ManifestTag = $Manifest.release_tag
+    if ([string]::IsNullOrWhiteSpace($ManifestTag)) {
+        $ManifestTag = $Manifest.tag
+    }
+
+    if ($ManifestTag -ne $ExpectedTag) {
+        Write-Host "Ignoring manifest for tag '$ManifestTag': $Path"
+        return $null
+    }
+
+    return $Manifest
+}
+
+function Find-ValidManifestFile {
+    param(
+        [string[]]$SearchDirs,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ExpectedRepo,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ExpectedTag
+    )
+
+    foreach ($Dir in (Get-UniqueExistingDirs $SearchDirs)) {
+        $Candidate = Join-Path $Dir "manifest.json"
+        if (-not (Test-Path $Candidate)) {
+            continue
+        }
+
+        $Manifest = Read-ValidatedManifest `
+            -Path $Candidate `
+            -ExpectedRepo $ExpectedRepo `
+            -ExpectedTag $ExpectedTag
+
+        if ($Manifest) {
+            return $Candidate
+        }
+    }
+
+    return $null
+}
+
 function Get-GitHubReleaseAssetUrl {
     param(
         [Parameter(Mandatory = $true)]
@@ -352,15 +425,35 @@ $ExistingLayout = Find-LayoutRoot -Candidates $LayoutCandidates
         Write-Host "[1/5] Reading manifest..."
 
         $ManifestPath = Join-Path $AssetsDir "manifest.json"
+        $Manifest = $null
+
         if (Test-Path $ManifestPath) {
-            Write-Host "Using existing manifest: $ManifestPath"
+            $Manifest = Read-ValidatedManifest `
+                -Path $ManifestPath `
+                -ExpectedRepo $Repo `
+                -ExpectedTag $Tag
+
+            if ($Manifest) {
+                Write-Host "Using existing manifest: $ManifestPath"
+            }
+            else {
+                Remove-Item -Force $ManifestPath
+            }
         }
-        else {
-            $ExistingManifest = Find-ExistingFile -FileName "manifest.json" -SearchDirs $SearchDirs
+
+        if (-not $Manifest) {
+            $ExistingManifest = Find-ValidManifestFile `
+                -SearchDirs $SearchDirs `
+                -ExpectedRepo $Repo `
+                -ExpectedTag $Tag
 
             if ($ExistingManifest) {
                 Write-Host "Reusing existing manifest: $ExistingManifest"
                 Copy-Item -Path $ExistingManifest -Destination $ManifestPath -Force
+                $Manifest = Read-ValidatedManifest `
+                    -Path $ManifestPath `
+                    -ExpectedRepo $Repo `
+                    -ExpectedTag $Tag
             }
             else {
                 if ($SkipDownloads) {
@@ -369,13 +462,15 @@ $ExistingLayout = Find-LayoutRoot -Candidates $LayoutCandidates
 
                 $ManifestUrl = Get-GitHubReleaseAssetUrl -Repo $Repo -Tag $Tag -AssetName "manifest.json"
                 Download-File -Url $ManifestUrl -OutFile $ManifestPath
+                $Manifest = Read-ValidatedManifest `
+                    -Path $ManifestPath `
+                    -ExpectedRepo $Repo `
+                    -ExpectedTag $Tag
+
+                if (-not $Manifest) {
+                    throw "Downloaded manifest does not match repo/tag: $Repo $Tag"
+                }
             }
-        }
-
-        $Manifest = Get-Content $ManifestPath -Raw | ConvertFrom-Json
-
-        if (-not $Manifest.files -or $Manifest.files.Count -eq 0) {
-            throw "Manifest has no files."
         }
 
         Write-Host "[2/5] Ensuring release assets are present..."
@@ -426,11 +521,19 @@ $ExistingLayout = Find-LayoutRoot -Candidates $LayoutCandidates
             throw "7z.exe not found: $SevenZip"
         }
 
-        $FirstPart = Get-ChildItem $AssetsDir -Filter "*.7z.001" | Sort-Object Name | Select-Object -First 1
+        $FirstPartManifestEntries = @($Manifest.files | Where-Object { $_.name -like "*.7z.001" })
 
-        if (-not $FirstPart) {
-            throw "Archive first part *.7z.001 not found."
+        if ($FirstPartManifestEntries.Count -ne 1) {
+            throw "Manifest must contain exactly one archive first part (*.7z.001), got $($FirstPartManifestEntries.Count)."
         }
+
+        $FirstPartPath = Join-Path $AssetsDir $FirstPartManifestEntries[0].name
+
+        if (-not (Test-Path $FirstPartPath)) {
+            throw "Archive first part not found after verification: $($FirstPartManifestEntries[0].name)"
+        }
+
+        $FirstPart = Get-Item $FirstPartPath
 
         $LayoutDir = $DefaultLayoutDir
         New-Item -ItemType Directory -Force $LayoutDir | Out-Null

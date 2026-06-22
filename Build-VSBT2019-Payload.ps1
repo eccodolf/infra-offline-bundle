@@ -2,6 +2,7 @@ param(
     [string]$LayoutPath = "C:\offline\vs2019-buildtools",
     [string]$BundlePath = "C:\offline\vs2019-buildtools-release",
     [string]$BundleName = "vsbt2019-v142-winsdk19041",
+    [string]$ReleaseTag = "vsbt2019-v142-winsdk19041-2026-06",
     [string]$SevenZipExe = "C:\Program Files\7-Zip\7z.exe"
 )
 
@@ -77,6 +78,7 @@ $Manifest = [PSCustomObject]@{
     created_at = (Get-Date).ToString("s")
     source_layout = $LayoutPath
     repo = "eccodolf/infra-offline-bundle"
+    release_tag = $ReleaseTag
     public_download = $true
     install_components = @(
         "Microsoft.VisualStudio.Workload.VCTools",

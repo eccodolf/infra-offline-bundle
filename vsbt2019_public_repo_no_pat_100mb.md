@@ -369,7 +369,7 @@ C:\BuildTools\VS2019               целевая папка установки
 
 ```powershell
 powershell -ExecutionPolicy Bypass `
-  -File ".\Install-VSBT2019-Offline.ps1" `
+  -File ".\vsbt2019-bootstrap\Install-VSBT2019-Offline.ps1" `
   -Proxy "http://host:port"
 ```
 

@@ -65,6 +65,69 @@ function Test-LayoutRoot {
     )
 }
 
+function Get-BuildToolsVerificationFailures {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$InstallPath
+    )
+
+    $Failures = New-Object System.Collections.Generic.List[string]
+
+    $VsDevCmd = Join-Path $InstallPath "Common7\Tools\VsDevCmd.bat"
+    if (-not (Test-Path $VsDevCmd)) {
+        $Failures.Add("VsDevCmd.bat not found: $VsDevCmd")
+    }
+
+    $MsvcRoot = Join-Path $InstallPath "VC\Tools\MSVC"
+    $ClPath = $null
+    if (Test-Path $MsvcRoot) {
+        $ClPath = Get-ChildItem -Path $MsvcRoot -Directory -ErrorAction SilentlyContinue |
+            ForEach-Object {
+                $Candidate = Join-Path $_.FullName "bin\Hostx64\x64\cl.exe"
+                if (Test-Path $Candidate) {
+                    $Candidate
+                }
+            } |
+            Select-Object -First 1
+    }
+
+    if (-not $ClPath) {
+        $Failures.Add("MSVC cl.exe not found under: $MsvcRoot")
+    }
+
+    $MsBuildCandidates = @(
+        (Join-Path $InstallPath "MSBuild\Current\Bin\MSBuild.exe"),
+        (Join-Path $InstallPath "MSBuild\Current\Bin\amd64\MSBuild.exe")
+    )
+
+    $MsBuildPath = $MsBuildCandidates |
+        Where-Object { Test-Path $_ } |
+        Select-Object -First 1
+
+    if (-not $MsBuildPath) {
+        $Failures.Add("MSBuild.exe not found under: $(Join-Path $InstallPath 'MSBuild')")
+    }
+
+    $ProgramFilesX86 = ${env:ProgramFiles(x86)}
+    if ([string]::IsNullOrWhiteSpace($ProgramFilesX86)) {
+        $Failures.Add("ProgramFiles(x86) environment variable is not set; cannot verify Windows SDK 10.0.19041.0")
+    }
+    else {
+        $WinSdkInclude = Join-Path $ProgramFilesX86 "Windows Kits\10\Include\10.0.19041.0"
+        $WinSdkLib = Join-Path $ProgramFilesX86 "Windows Kits\10\Lib\10.0.19041.0"
+
+        if (-not (Test-Path $WinSdkInclude)) {
+            $Failures.Add("Windows SDK include path not found: $WinSdkInclude")
+        }
+
+        if (-not (Test-Path $WinSdkLib)) {
+            $Failures.Add("Windows SDK lib path not found: $WinSdkLib")
+        }
+    }
+
+    return $Failures
+}
+
 function Find-LayoutRoot {
     param(
         [string[]]$Candidates
@@ -567,6 +630,13 @@ $ExistingLayout = Find-LayoutRoot -Candidates $LayoutCandidates
         "--wait",
         "--norestart",
         "--passive",
+        "--add",
+        "Microsoft.VisualStudio.Workload.VCTools",
+        "--add",
+        "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+        "--add",
+        "Microsoft.VisualStudio.Component.Windows10SDK.19041",
+        "--includeRecommended",
         "--installPath",
         $InstallPath
     )
@@ -595,6 +665,13 @@ $ExistingLayout = Find-LayoutRoot -Candidates $LayoutCandidates
         throw "VS Build Tools installer failed with exit code $ExitCode. See logs: $LogsDir"
     }
 
+    $VerificationFailures = Get-BuildToolsVerificationFailures -InstallPath $InstallPath
+    if ($VerificationFailures.Count -gt 0) {
+        $FailureText = ($VerificationFailures | ForEach-Object { " - $_" }) -join [Environment]::NewLine
+        throw "VS Build Tools installer exited successfully, but required tools were not found:$([Environment]::NewLine)$FailureText$([Environment]::NewLine)See logs: $LogsDir"
+    }
+
+    Write-Host "Verified installed Build Tools components."
     Write-Host "Script log: $TranscriptPath"
 }
 finally {

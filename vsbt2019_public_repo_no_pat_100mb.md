@@ -144,7 +144,7 @@ Install-VSBT2019-Offline.ps1
 6. Если нужен proxy, просит URL в формате http://host:port только при фактической докачке.
 7. Если proxy не задан, не использует proxy.
 8. Использует готовый layout из .\vs2019-buildtools или распаковывает layout в .\vsbt2019-install\layout.
-9. Запускает vs_buildtools.exe из корня layout с --noWeb.
+9. Запускает vs_buildtools.exe из корня layout с --noWeb, нужными --add компонентами и проверкой установленного результата.
 10. Показывает пассивный UI установщика, чтобы был виден процесс.
 11. Сохраняет логи в .\vsbt2019-install\logs.
 ```
@@ -359,10 +359,11 @@ C:\BuildTools\VS2019               целевая папка установки
 4. Докачает из GitHub Release только отсутствующие или поврежденные файлы.
 5. Проверит SHA256 каждого файла.
 6. Использует готовый layout из .\vs2019-buildtools или распакует split-архив через вложенный 7z.exe, если готового layout нет.
-7. Запустит vs_buildtools.exe из корня layout с --noWeb и рабочей директорией layout.
-8. Покажет пассивный UI установщика, чтобы был виден процесс.
-9. Сохранит логи в .\vsbt2019-install\logs.
-10. Установит C++ Build Tools, MSVC v142 x86/x64 и Windows 10 SDK 19041.
+7. Запустит vs_buildtools.exe из корня layout с --noWeb, нужными --add компонентами и рабочей директорией layout.
+8. Проверит, что после установки доступны VsDevCmd.bat, cl.exe, MSBuild.exe и Windows SDK 10.0.19041.0.
+9. Покажет пассивный UI установщика, чтобы был виден процесс.
+10. Сохранит логи в .\vsbt2019-install\logs.
+11. Установит C++ Build Tools, MSVC v142 x86/x64 и Windows 10 SDK 19041.
 ```
 
 Если для докачки с GitHub нужен proxy, передай его параметром:

@@ -134,13 +134,10 @@ Microsoft.VisualStudio.Component.Windows10SDK.19041
 Открой новый PowerShell от администратора:
 
 ```powershell
-& "C:\BuildTools\VS2019\Common7\Tools\VsDevCmd.bat"
-
-where cl
-cl
-where msbuild
-msbuild -version
+cmd /c '"C:\BuildTools\VS2019\Common7\Tools\VsDevCmd.bat" && where cl && cl && where msbuild && msbuild -version'
 ```
+
+В PowerShell не проверяй через отдельные строки `& "...\VsDevCmd.bat"` и `where cl`: batch-файл меняет окружение только внутри `cmd.exe`, а `where` в PowerShell является алиасом. Поэтому нужна команда выше.
 
 Если `cl` найден и показывает Microsoft C/C++ Compiler 19.2x, MSVC v142 установлен.
 

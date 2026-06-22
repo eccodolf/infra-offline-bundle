@@ -1,5 +1,13 @@
 # Сценарий переноса VS Build Tools 2019 в закрытый контур через публичный GitHub Release
 
+Дополнительный рецепт для сборки `python-ldap` через `pip install` находится в отдельном файле:
+
+```text
+python_ldap_builddeps_public_repo.md
+```
+
+Он не заменяет VS Build Tools, а добавляет OpenSSL/OpenLDAP headers/libs и локальный wheelhouse для `python-ldap==3.4.5`.
+
 ## 0. Исходные условия
 
 Публичный репозиторий для доставки:

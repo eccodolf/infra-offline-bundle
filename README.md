@@ -1,3 +1,57 @@
+# Offline build dependencies for closed contour
+
+Репозиторий публичный, поэтому PAT/token для скачивания из закрытого контура не нужен.
+
+## Python LDAP для pip install
+
+Этот блок нужен для ошибки вида:
+
+```text
+fatal error C1083: Cannot open include file: 'lber.h'
+```
+
+Скрипт скачивает из GitHub Release только подготовленный payload, раскладывает OpenSSL/OpenLDAP SDK и настраивает pip так, чтобы обычный `pip install python-ldap==3.4.5` сам нашел локальный patched sdist и build/runtime wheels.
+
+В git-репе лежат только скрипты и документация. Сами headers/libs/sdist/wheels публикуются release assets, потому что в закрытом контуре их нельзя скачать с PyPI, OpenSSL или OpenLDAP.
+
+Открой PowerShell:
+
+```powershell
+cd "C:\offline"
+
+$Repo = "eccodolf/infra-offline-bundle"
+$Tag = "python-ldap-3.4.5-builddeps-2026-06"
+
+New-Item -ItemType Directory -Force ".\python-ldap-builddeps-bootstrap" | Out-Null
+
+Invoke-WebRequest `
+  -UseBasicParsing `
+  -Uri "https://github.com/$Repo/releases/download/$Tag/Install-PythonLdapBuildDeps.ps1" `
+  -OutFile ".\python-ldap-builddeps-bootstrap\Install-PythonLdapBuildDeps.ps1"
+
+powershell -ExecutionPolicy Bypass `
+  -File ".\python-ldap-builddeps-bootstrap\Install-PythonLdapBuildDeps.ps1" `
+  -VenvPath "C:\PyCharmProjects\rescalc\venv" `
+  -NoIndex
+```
+
+Если для GitHub нужен proxy, добавь `-Proxy "http://host:port"` к `Invoke-WebRequest`. Сам установочный скрипт также спросит proxy только если ему нужно докачивать отсутствующие файлы. Если proxy не задан, proxy не используется.
+
+После этого обычная установка:
+
+```powershell
+C:\PyCharmProjects\rescalc\venv\Scripts\python.exe -m pip install python-ldap==3.4.5
+```
+
+Если `-VenvPath` не передавался, активируй окружение в текущем PowerShell:
+
+```powershell
+. "C:\offline\python-ldap-builddeps\Use-PythonLdapBuildDeps.ps1" -NoIndex
+python -m pip install python-ldap==3.4.5
+```
+
+Подробная инструкция по сборке payload и публикации release: [python_ldap_builddeps_public_repo.md](python_ldap_builddeps_public_repo.md).
+
 # VS Build Tools 2019 offline install
 
 Инструкция для закрытого контура. Репозиторий публичный, поэтому PAT/token для скачивания не нужен.

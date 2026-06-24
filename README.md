@@ -2,6 +2,23 @@
 
 Репозиторий публичный, поэтому PAT/token для скачивания из закрытого контура не нужен.
 
+## Правильный порядок для `python-ldap`
+
+Для закрытого Windows-контура не начинайте с установки `python-ldap`. Сначала
+должен быть готов native toolchain, иначе сборка `_ldap` упадёт на заголовках или
+linker libraries.
+
+Порядок:
+
+1. Скачать assets VS Build Tools 2019 release и assets `python-ldap` builddeps release.
+2. Установить VS Build Tools 2019 из offline layout.
+3. Проверить `VsDevCmd.bat`, `cl` и `msbuild`.
+4. Запустить `Install-PythonLdapBuildDeps.ps1` с `-VenvPath ... -InstallPythonLdap -NoIndex`.
+5. Только после этого запускать обычный `pip install -r requirements/base.txt`.
+
+Если VS Build Tools 2019 уже установлен и проверен, переходите сразу к блоку
+`Python LDAP для pip install`.
+
 ## Python LDAP для pip install
 
 Этот блок нужен для ошибки вида:
@@ -10,7 +27,10 @@
 fatal error C1083: Cannot open include file: 'lber.h'
 ```
 
-Скрипт скачивает из GitHub Release только подготовленный payload, раскладывает OpenSSL/OpenLDAP SDK и настраивает pip так, чтобы обычный `pip install python-ldap==3.4.5` сам нашел локальный patched sdist и build/runtime wheels.
+Перед этим блоком должен быть установлен и проверен VS Build Tools 2019 из
+раздела ниже. Скрипт скачивает из GitHub Release только подготовленный payload,
+раскладывает OpenSSL/OpenLDAP SDK и ставит `python-ldap==3.4.5` в указанный venv
+через временный pip config.
 
 В git-репе лежат только скрипты и документация. Сами headers/libs/sdist/wheels публикуются release assets, потому что в закрытом контуре их нельзя скачать с PyPI, OpenSSL или OpenLDAP.
 
